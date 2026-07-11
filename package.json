@@ -1,0 +1,40 @@
+{
+  "name": "pixelmap",
+  "version": "0.1.0",
+  "description": "Labeled master sheets for tile art: structure-first sprite sheets you can restructure without losing paint — named rows × variations, table or free layouts, CLI + web editor, runtime metadata.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./engine": "./src/engine.ts",
+    "./browser": "./src/browser.ts"
+  },
+  "scripts": {
+    "sheet": "tsx cli.ts",
+    "editor": "tsx editor/server.ts",
+    "test": "vitest run",
+    "build": "tsc --noEmit",
+    "format": "prettier --check .",
+    "format:fix": "prettier --write ."
+  },
+  "keywords": [
+    "tilemap",
+    "tileset",
+    "sprite-sheet",
+    "pixel-art",
+    "atlas",
+    "gamedev"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "sharp": "^0.35.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "prettier": "^3.9.5",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^4.1.10"
+  }
+}

@@ -1,0 +1,905 @@
+<!doctype html>
+<html lang="pt-BR" class="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pixelmap — editor de folhas mestres</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      .pixelated {
+        image-rendering: pixelated;
+      }
+    </style>
+  </head>
+  <body class="bg-zinc-950 text-zinc-100 min-h-screen font-sans">
+    <!-- Top bar -->
+    <header
+      class="sticky top-0 z-30 bg-zinc-900/95 backdrop-blur border-b border-zinc-800 px-4 py-2 flex items-center gap-3 flex-wrap"
+    >
+      <h1 class="text-sm font-semibold text-emerald-400 whitespace-nowrap">🗺️ pixelmap</h1>
+      <select
+        id="layout-select"
+        class="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm min-w-52"
+      ></select>
+      <button
+        id="btn-new"
+        class="px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-sm font-medium"
+      >
+        Novo layout
+      </button>
+      <button id="btn-title" class="px-3 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-sm hidden">
+        Renomear título
+      </button>
+      <button
+        id="btn-mode"
+        class="px-3 py-1 rounded bg-violet-700/60 hover:bg-violet-600/60 text-sm hidden"
+      ></button>
+      <button
+        id="btn-render"
+        class="px-3 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-sm hidden"
+      >
+        Re-render
+      </button>
+      <span class="flex-1"></span>
+      <div id="zoom-box" class="items-center gap-1 hidden">
+        <button id="zoom-out" class="w-7 h-7 rounded bg-zinc-800 hover:bg-zinc-700 text-sm">
+          −
+        </button>
+        <span id="zoom-label" class="text-xs text-zinc-400 w-10 text-center">100%</span>
+        <button id="zoom-in" class="w-7 h-7 rounded bg-zinc-800 hover:bg-zinc-700 text-sm">
+          +
+        </button>
+      </div>
+      <a
+        id="btn-download"
+        class="px-3 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-sm hidden"
+        download
+        >Baixar PNG</a
+      >
+    </header>
+
+    <!-- Sheet tabs -->
+    <nav
+      id="tabs"
+      class="px-4 py-2 flex items-center gap-1 flex-wrap border-b border-zinc-800/60 hidden"
+    ></nav>
+
+    <!-- Canvas -->
+    <main id="viewport" class="p-4 overflow-auto" style="height: calc(100vh - 92px)">
+      <div id="empty-hint" class="text-zinc-500 text-sm mt-10 text-center">
+        Abra um layout existente acima ou crie um novo — o esqueleto (linhas × variações,
+        magenta&nbsp;=&nbsp;vazio) é gerado e mantido pela ferramenta; pinte as células em qualquer
+        editor de imagem ou envie um PNG direto pra célula por aqui.
+      </div>
+      <div id="stage-outer" class="relative hidden">
+        <div id="stage" class="relative origin-top-left">
+          <img id="sheet-img" class="pixelated block select-none" draggable="false" alt="" />
+          <div id="overlays" class="absolute inset-0"></div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Modal + toast roots -->
+    <div id="modal-root"></div>
+    <div id="toast-root" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 items-end"></div>
+
+    <input type="file" id="file-input" accept="image/*" class="hidden" />
+
+    <script>
+      // Must mirror PIXELMAP_STYLE in shared/src/game/pixelmap.ts (the server
+      // also sends it in every state payload; we assert equality on load).
+      let STYLE = {
+        labelHeight: 16,
+        padX: 6,
+        padY: 10,
+        marginTop: 34,
+        marginRight: 10,
+        marginBottom: 12,
+      };
+
+      let state = null; // { path, layout, geometry, cells, style }
+      let currentSheet = null;
+      let zoom = 1;
+      // Active drag source: {kind:'cell',row,label} | {kind:'row',name} | null.
+      // dataTransfer.getData is unavailable during dragover, hence this var.
+      let dragCtx = null;
+
+      const $ = (id) => document.getElementById(id);
+
+      // ------------------------------------------------------------------ api
+      async function api(url, options) {
+        const res = await fetch(url, options);
+        const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+        return body;
+      }
+      const post = (url, body) =>
+        api(url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+      const runOp = async (op, okMessage) => {
+        try {
+          setState(await post('/api/op', { path: state.path, op }));
+          toast(okMessage, 'ok');
+        } catch (error) {
+          toast(error.message, 'error');
+        }
+      };
+
+      // ---------------------------------------------------------------- toasts
+      function toast(message, kind = 'ok') {
+        const el = document.createElement('div');
+        el.className =
+          'px-4 py-2 rounded-lg shadow-lg text-sm max-w-md break-words border ' +
+          (kind === 'ok'
+            ? 'bg-emerald-950/95 border-emerald-700 text-emerald-100'
+            : 'bg-red-950/95 border-red-700 text-red-100');
+        el.textContent = message;
+        $('toast-root').appendChild(el);
+        setTimeout(() => {
+          el.classList.add('opacity-0', 'transition-opacity', 'duration-500');
+          setTimeout(() => el.remove(), 500);
+        }, 3500);
+      }
+
+      // ---------------------------------------------------------------- modals
+      function openModal(title, build) {
+        closeModal();
+        const wrap = document.createElement('div');
+        wrap.className = 'fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4';
+        wrap.innerHTML = `
+          <div class="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-md">
+            <div class="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
+              <h2 class="text-sm font-semibold"></h2>
+              <button class="modal-x text-zinc-400 hover:text-zinc-100 text-lg leading-none">×</button>
+            </div>
+            <div class="modal-body px-4 py-4 flex flex-col gap-3"></div>
+          </div>`;
+        wrap.querySelector('h2').textContent = title;
+        wrap.addEventListener('mousedown', (e) => e.target === wrap && closeModal());
+        wrap.querySelector('.modal-x').addEventListener('click', closeModal);
+        $('modal-root').appendChild(wrap);
+        build(wrap.querySelector('.modal-body'), closeModal);
+        const first = wrap.querySelector('input, button.primary');
+        if (first) first.focus();
+      }
+      const closeModal = () => ($('modal-root').innerHTML = '');
+
+      const field = (label, value = '', placeholder = '') => {
+        const div = document.createElement('label');
+        div.className = 'flex flex-col gap-1 text-xs text-zinc-400';
+        div.innerHTML = `<span></span>
+          <input class="bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-100" />`;
+        div.querySelector('span').textContent = label;
+        const input = div.querySelector('input');
+        input.value = value;
+        input.placeholder = placeholder;
+        return { el: div, input };
+      };
+      const button = (label, cls, onClick) => {
+        const el = document.createElement('button');
+        el.className = 'px-3 py-1.5 rounded text-sm font-medium ' + cls;
+        el.textContent = label;
+        el.addEventListener('click', onClick);
+        return el;
+      };
+      const primary = (label, onClick) =>
+        button(label, 'primary bg-emerald-600 hover:bg-emerald-500', onClick);
+      const danger = (label, onClick) => button(label, 'bg-red-700 hover:bg-red-600', onClick);
+      const plain = (label, onClick) => button(label, 'bg-zinc-800 hover:bg-zinc-700', onClick);
+
+      function confirmModal(message, onYes) {
+        openModal('Confirmar', (body, close) => {
+          const p = document.createElement('p');
+          p.className = 'text-sm text-zinc-300';
+          p.textContent = message;
+          const row = document.createElement('div');
+          row.className = 'flex gap-2 justify-end';
+          row.append(
+            plain('Cancelar', close),
+            danger('Confirmar', () => (close(), onYes())),
+          );
+          body.append(p, row);
+        });
+      }
+
+      // ----------------------------------------------------------- state/view
+      function setState(next) {
+        state = next;
+        if (next.style) STYLE = next.style;
+        if (!state.layout.sheets.includes(currentSheet))
+          currentSheet = state.layout.sheets[0] ?? null;
+        localStorage.setItem('pixelmap:last', state.path);
+        renderView();
+      }
+
+      function pitch() {
+        const t = state.layout.tileSize;
+        return { x: t + STYLE.padX, y: STYLE.labelHeight + t + STYLE.padY };
+      }
+      // Mirrors pixelMapRowCells: table mode shares layout.columns everywhere
+      const isTable = () => (state.layout.mode ?? 'free') === 'table';
+      const effCells = (row) => (isTable() ? (state.layout.columns ?? []) : (row.cells ?? []));
+      const findRow = (name) => state.layout.rows.find((r) => r.name === name);
+      const rowY = (index) => STYLE.marginTop + index * pitch().y + STYLE.labelHeight;
+
+      function renderView() {
+        const has = !!state && !!currentSheet;
+        $('empty-hint').classList.toggle('hidden', !!state);
+        $('stage-outer').classList.toggle('hidden', !has);
+        for (const id of ['btn-render', 'btn-title', 'btn-mode', 'btn-download'])
+          $(id).classList.toggle('hidden', !state);
+        if (state) $('btn-mode').textContent = isTable() ? '▦ Tipo: tabela' : '▤ Tipo: livre';
+        $('zoom-box').classList.toggle('hidden', !has);
+        $('zoom-box').classList.toggle('flex', has);
+        $('tabs').classList.toggle('hidden', !state);
+        if (!state) return;
+
+        // Sheet tabs
+        const tabs = $('tabs');
+        tabs.innerHTML = '';
+        for (const sheet of state.layout.sheets) {
+          const tab = document.createElement('button');
+          tab.className =
+            'group flex items-center gap-1.5 px-3 py-1 rounded-full text-sm border ' +
+            (sheet === currentSheet
+              ? 'bg-emerald-600/20 border-emerald-600 text-emerald-200'
+              : 'bg-zinc-900 border-zinc-700 text-zinc-300 hover:border-zinc-500');
+          const name = document.createElement('span');
+          name.textContent = sheet;
+          const x = document.createElement('span');
+          x.className = 'text-zinc-500 hover:text-red-400 opacity-0 group-hover:opacity-100';
+          x.textContent = '×';
+          x.addEventListener('click', (e) => {
+            e.stopPropagation();
+            confirmModal(`Parar de renderizar a folha "${sheet}"? O PNG fica no disco.`, () =>
+              runOp({ type: 'sheetRemove', names: [sheet] }, `folha ${sheet} removida do layout`),
+            );
+          });
+          tab.append(name, x);
+          tab.addEventListener('click', () => ((currentSheet = sheet), renderView()));
+          tabs.appendChild(tab);
+        }
+        const add = document.createElement('button');
+        add.className =
+          'px-3 py-1 rounded-full text-sm border border-dashed border-zinc-600 text-zinc-400 hover:text-emerald-300 hover:border-emerald-500';
+        add.textContent = '+ folha';
+        add.addEventListener('click', sheetAddModal);
+        tabs.appendChild(add);
+        const info = document.createElement('span');
+        info.className = 'ml-auto text-xs text-zinc-500';
+        info.textContent = `${state.path} — ${isTable() ? 'tabela' : 'livre'} — tile ${state.layout.tileSize}px — ${state.geometry.width}×${state.geometry.height}`;
+        tabs.appendChild(info);
+
+        if (!currentSheet) return;
+
+        // Sheet image + zoom
+        const img = $('sheet-img');
+        img.src = `/png?path=${encodeURIComponent(state.path)}&sheet=${encodeURIComponent(currentSheet)}&t=${Date.now()}`;
+        img.width = state.geometry.width;
+        img.height = state.geometry.height;
+        $('btn-download').href = img.src;
+        $('btn-download').setAttribute('download', `${currentSheet}.png`);
+        applyZoom();
+
+        // Overlays
+        const overlays = $('overlays');
+        overlays.innerHTML = '';
+        const tile = state.layout.tileSize;
+        const place = (el, x, y, w, h) => {
+          el.style.cssText += `;position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
+          overlays.appendChild(el);
+        };
+
+        const table = isTable();
+        state.layout.rows.forEach((row, r) => {
+          const rowCells = effCells(row);
+          // Row title hit-area — draggable to reorder rows
+          const rowBtn = document.createElement('button');
+          rowBtn.className =
+            'text-left rounded cursor-grab hover:bg-sky-400/10 hover:outline hover:outline-1 hover:outline-sky-500/60';
+          rowBtn.title = `linha ${row.name} — clique para editar, arraste para reordenar`;
+          rowBtn.draggable = true;
+          rowBtn.addEventListener('click', () => rowModal(row.name));
+          rowBtn.addEventListener('dragstart', (e) => {
+            dragCtx = { kind: 'row', name: row.name };
+            e.dataTransfer.effectAllowed = 'move';
+          });
+          rowBtn.addEventListener('dragend', () => (dragCtx = null));
+          rowBtn.addEventListener('dragover', (e) => {
+            if (dragCtx?.kind !== 'row' || dragCtx.name === row.name) return;
+            e.preventDefault();
+            rowBtn.classList.add('bg-amber-400/20');
+          });
+          rowBtn.addEventListener('dragleave', () => rowBtn.classList.remove('bg-amber-400/20'));
+          rowBtn.addEventListener('drop', (e) => {
+            e.preventDefault();
+            rowBtn.classList.remove('bg-amber-400/20');
+            if (dragCtx?.kind !== 'row' || dragCtx.name === row.name) return;
+            // moveTo splices out the dragged row first, so the hovered row's
+            // index IS the dragged row's final slot
+            runOp(
+              { type: 'rowMove', name: dragCtx.name, index: r },
+              `linha ${dragCtx.name} movida para a posição ${r}`,
+            );
+            dragCtx = null;
+          });
+          place(rowBtn, 2, rowY(r), state.geometry.marginLeft - 8, tile);
+
+          // Cells — draggable to reorder (in table mode the drag reorders the
+          // shared COLUMN across every row); files drop as images.
+          rowCells.forEach((label, c) => {
+            const x = state.geometry.marginLeft + c * pitch().x;
+            const cell = document.createElement('button');
+            cell.className =
+              'rounded-sm cursor-grab hover:outline hover:outline-2 hover:outline-emerald-400 hover:bg-emerald-400/10';
+            cell.title = table
+              ? `${row.name}/${label} — coluna ${label} (todas as linhas) — clique para editar`
+              : `${row.name}/${label} — clique para editar, arraste para reordenar`;
+            cell.draggable = true;
+            cell.addEventListener('click', () => cellModal(row.name, label));
+            cell.addEventListener('dragstart', (e) => {
+              dragCtx = { kind: 'cell', row: row.name, label };
+              e.dataTransfer.effectAllowed = 'move';
+            });
+            cell.addEventListener('dragend', () => (dragCtx = null));
+            cell.addEventListener('dragover', (e) => {
+              if (dragCtx?.kind === 'cell') {
+                if (dragCtx.row !== row.name || dragCtx.label === label) return;
+                e.preventDefault();
+                cell.classList.add('bg-amber-400/30');
+              } else if (dragCtx?.kind !== 'row') {
+                // no drag context = something external (a file)
+                e.preventDefault();
+                cell.classList.add('bg-emerald-400/30');
+              }
+            });
+            cell.addEventListener('dragleave', () =>
+              cell.classList.remove('bg-emerald-400/30', 'bg-amber-400/30'),
+            );
+            cell.addEventListener('drop', (e) => {
+              e.preventDefault();
+              cell.classList.remove('bg-emerald-400/30', 'bg-amber-400/30');
+              if (dragCtx?.kind === 'cell') {
+                if (dragCtx.row !== row.name || dragCtx.label === label) return;
+                runOp(
+                  table
+                    ? { type: 'colMove', label: dragCtx.label, index: c }
+                    : { type: 'cellMove', row: row.name, label: dragCtx.label, index: c },
+                  table
+                    ? `coluna ${dragCtx.label} movida para a posição ${c} (todas as linhas)`
+                    : `célula ${dragCtx.label} movida para a posição ${c}`,
+                );
+                dragCtx = null;
+                return;
+              }
+              const file = e.dataTransfer.files?.[0];
+              if (file) uploadToCell(row.name, label, file);
+            });
+            place(cell, x, rowY(r), tile, tile);
+          });
+
+          // Ghost "+" cell at the row's end — also a "move to end" drop target
+          const ghost = document.createElement('button');
+          ghost.className =
+            'border border-dashed border-zinc-600 rounded text-zinc-500 text-xl hover:text-emerald-300 hover:border-emerald-500';
+          ghost.textContent = '+';
+          ghost.title = table
+            ? 'adicionar colunas (todas as linhas)'
+            : `adicionar células em ${row.name}`;
+          ghost.addEventListener('click', () => (table ? colAddModal() : cellAddModal(row.name)));
+          ghost.addEventListener('dragover', (e) => {
+            if (dragCtx?.kind !== 'cell' || dragCtx.row !== row.name) return;
+            e.preventDefault();
+            ghost.classList.add('bg-amber-400/30');
+          });
+          ghost.addEventListener('dragleave', () => ghost.classList.remove('bg-amber-400/30'));
+          ghost.addEventListener('drop', (e) => {
+            e.preventDefault();
+            ghost.classList.remove('bg-amber-400/30');
+            if (dragCtx?.kind !== 'cell' || dragCtx.row !== row.name) return;
+            runOp(
+              table
+                ? { type: 'colMove', label: dragCtx.label, index: rowCells.length - 1 }
+                : {
+                    type: 'cellMove',
+                    row: row.name,
+                    label: dragCtx.label,
+                    index: rowCells.length - 1,
+                  },
+              table
+                ? `coluna ${dragCtx.label} movida para o fim (todas as linhas)`
+                : `célula ${dragCtx.label} movida para o fim`,
+            );
+            dragCtx = null;
+          });
+          place(
+            ghost,
+            state.geometry.marginLeft + rowCells.length * pitch().x,
+            rowY(r),
+            tile,
+            tile,
+          );
+        });
+
+        // Ghost "+ linha" under the last row
+        const ghostRow = document.createElement('button');
+        ghostRow.className =
+          'border border-dashed border-zinc-600 rounded text-zinc-500 text-sm hover:text-emerald-300 hover:border-emerald-500';
+        ghostRow.textContent = '+ linha';
+        ghostRow.addEventListener('click', () => rowAddModal());
+        place(ghostRow, 10, rowY(state.layout.rows.length) - STYLE.labelHeight + 4, 160, 30);
+      }
+
+      function applyZoom() {
+        $('stage').style.transform = `scale(${zoom})`;
+        $('stage-outer').style.width = `${Math.ceil(state.geometry.width * zoom)}px`;
+        $('stage-outer').style.height = `${Math.ceil((state.geometry.height + 40) * zoom)}px`;
+        $('zoom-label').textContent = `${Math.round(zoom * 100)}%`;
+      }
+
+      // ---------------------------------------------------------- cell modals
+      function cellModal(row, label) {
+        openModal(`Célula ${row} / ${label}`, (body, close) => {
+          const preview = document.createElement('img');
+          preview.className =
+            'pixelated w-32 h-32 mx-auto border border-zinc-700 rounded bg-[repeating-conic-gradient(#3f3f46_0_25%,#27272a_0_50%)] bg-[length:16px_16px]';
+          preview.src = `/api/cell.png?path=${encodeURIComponent(state.path)}&sheet=${encodeURIComponent(currentSheet)}&row=${encodeURIComponent(row)}&label=${encodeURIComponent(label)}&t=${Date.now()}`;
+          body.appendChild(preview);
+
+          const grid = document.createElement('div');
+          grid.className = 'grid grid-cols-2 gap-2';
+          const table = isTable();
+          if (table) {
+            const note = document.createElement('p');
+            note.className = 'text-xs text-violet-300/80 text-center';
+            note.textContent =
+              'Modo tabela: renomear/mover/remover atuam na COLUNA, em todas as linhas.';
+            body.append(note);
+          }
+          grid.append(
+            plain(table ? '✏️ Renomear coluna' : '✏️ Renomear', () => renameCellModal(row, label)),
+            plain('⬅️ Mover p/ esquerda', () => moveCell(row, label, -1)),
+            plain('➡️ Mover p/ direita', () => moveCell(row, label, +1)),
+            plain('🖼️ Enviar imagem', () => {
+              const input = $('file-input');
+              input.onchange = () => {
+                if (input.files?.[0]) uploadToCell(row, label, input.files[0]);
+                input.value = '';
+                close();
+              };
+              input.click();
+            }),
+            plain('⬇️ Baixar célula', () => window.open(preview.src, '_blank')),
+            plain('🧽 Limpar (magenta)', () =>
+              confirmModal(`Limpar a pintura de ${row}/${label} em TODAS as folhas?`, () =>
+                runOp({ type: 'cellClear', row, labels: [label] }, `célula ${row}/${label} limpa`),
+              ),
+            ),
+          );
+          body.append(grid);
+          body.append(
+            danger(table ? '🗑️ Remover coluna (todas as linhas)' : '🗑️ Remover célula', () =>
+              confirmModal(
+                table
+                  ? `Remover a coluna ${label} de TODAS as linhas? A pintura dela é descartada.`
+                  : `Remover a célula ${row}/${label}? A pintura dela é descartada.`,
+                () =>
+                  runOp(
+                    table
+                      ? { type: 'colRemove', labels: [label] }
+                      : { type: 'cellRemove', row, labels: [label] },
+                    table ? `coluna ${label} removida` : `célula ${row}/${label} removida`,
+                  ),
+              ),
+            ),
+          );
+        });
+      }
+
+      function moveCell(row, label, delta) {
+        const cells = effCells(findRow(row));
+        const index = cells.indexOf(label) + delta;
+        if (index < 0 || index >= cells.length) return toast('já está na ponta', 'error');
+        closeModal();
+        runOp(
+          isTable() ? { type: 'colMove', label, index } : { type: 'cellMove', row, label, index },
+          isTable()
+            ? `coluna movida para a posição ${index} (todas as linhas)`
+            : `célula movida para a posição ${index}`,
+        );
+      }
+
+      function renameCellModal(row, label) {
+        const table = isTable();
+        openModal(
+          table ? `Renomear coluna ${label}` : `Renomear célula ${row}/${label}`,
+          (body, close) => {
+            const name = field(
+              table
+                ? 'Novo nome da coluna (todas as linhas; pintura preservada)'
+                : 'Novo label (pintura preservada)',
+              label,
+            );
+            const row2 = document.createElement('div');
+            row2.className = 'flex gap-2 justify-end';
+            const submit = () => {
+              close();
+              runOp(
+                table
+                  ? { type: 'colRename', from: label, to: name.input.value.trim() }
+                  : { type: 'cellRename', row, from: label, to: name.input.value.trim() },
+                `${table ? 'coluna renomeada' : 'célula renomeada'} para ${name.input.value.trim()}`,
+              );
+            };
+            name.input.addEventListener('keydown', (e) => e.key === 'Enter' && submit());
+            row2.append(plain('Cancelar', close), primary('Renomear', submit));
+            body.append(name.el, row2);
+          },
+        );
+      }
+
+      function colAddModal() {
+        openModal('Adicionar colunas (todas as linhas)', (body, close) => {
+          const labels = field(
+            'Colunas (separadas por espaço ou vírgula)',
+            '',
+            'ex.: self up down',
+          );
+          const at = field('Posição (vazio = fim)', '', '0-based');
+          const row2 = document.createElement('div');
+          row2.className = 'flex gap-2 justify-end';
+          const submit = () => {
+            const list = labels.input.value.split(/[\s,]+/).filter(Boolean);
+            if (!list.length) return toast('informe ao menos uma coluna', 'error');
+            close();
+            runOp(
+              {
+                type: 'colAdd',
+                labels: list,
+                at: at.input.value === '' ? undefined : Number(at.input.value),
+              },
+              `${list.length} coluna(s) adicionada(s) em todas as linhas`,
+            );
+          };
+          labels.input.addEventListener('keydown', (e) => e.key === 'Enter' && submit());
+          row2.append(plain('Cancelar', close), primary('Adicionar', submit));
+          body.append(labels.el, at.el, row2);
+        });
+      }
+
+      function cellAddModal(row) {
+        openModal(`Adicionar células em ${row}`, (body, close) => {
+          const labels = field('Labels (separados por espaço ou vírgula)', '', 'ex.: 0 1 2 e1 e2');
+          const at = field('Posição (vazio = fim)', '', '0-based');
+          const row2 = document.createElement('div');
+          row2.className = 'flex gap-2 justify-end';
+          const submit = () => {
+            const list = labels.input.value.split(/[\s,]+/).filter(Boolean);
+            if (!list.length) return toast('informe ao menos um label', 'error');
+            close();
+            runOp(
+              {
+                type: 'cellAdd',
+                row,
+                labels: list,
+                at: at.input.value === '' ? undefined : Number(at.input.value),
+              },
+              `${list.length} célula(s) adicionada(s) em ${row}`,
+            );
+          };
+          labels.input.addEventListener('keydown', (e) => e.key === 'Enter' && submit());
+          row2.append(plain('Cancelar', close), primary('Adicionar', submit));
+          body.append(labels.el, at.el, row2);
+        });
+      }
+
+      async function uploadToCell(row, label, file) {
+        try {
+          const dataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(new Error('falha lendo o arquivo'));
+            reader.readAsDataURL(file);
+          });
+          setState(
+            await post('/api/cell/image', {
+              path: state.path,
+              sheet: currentSheet,
+              row,
+              label,
+              dataUrl,
+            }),
+          );
+          toast(`imagem aplicada em ${row}/${label} (${currentSheet})`, 'ok');
+        } catch (error) {
+          toast(error.message, 'error');
+        }
+      }
+
+      // ----------------------------------------------------------- row modals
+      function rowModal(name) {
+        const index = state.layout.rows.findIndex((r) => r.name === name);
+        openModal(`Linha ${name}`, (body, close) => {
+          const grid = document.createElement('div');
+          grid.className = 'grid grid-cols-2 gap-2';
+          grid.append(
+            plain('✏️ Renomear', () => renameRowModal(name)),
+            isTable()
+              ? plain('➕ Adicionar colunas', () => colAddModal())
+              : plain('➕ Adicionar células', () => cellAddModal(name)),
+            plain('⬆️ Mover p/ cima', () => {
+              if (index === 0) return toast('já é a primeira', 'error');
+              close();
+              runOp({ type: 'rowMove', name, index: index - 1 }, `linha ${name} movida para cima`);
+            }),
+            plain('⬇️ Mover p/ baixo', () => {
+              if (index === state.layout.rows.length - 1) return toast('já é a última', 'error');
+              close();
+              runOp({ type: 'rowMove', name, index: index + 1 }, `linha ${name} movida para baixo`);
+            }),
+          );
+          const remove = danger('🗑️ Remover linha', () =>
+            confirmModal(`Remover a linha ${name} e TODAS as suas células pintadas?`, () =>
+              runOp({ type: 'rowRemove', names: [name] }, `linha ${name} removida`),
+            ),
+          );
+          body.append(grid, remove);
+        });
+      }
+
+      function renameRowModal(name) {
+        openModal(`Renomear linha ${name}`, (body, close) => {
+          const input = field('Novo nome (pintura preservada)', name);
+          const row2 = document.createElement('div');
+          row2.className = 'flex gap-2 justify-end';
+          const submit = () => {
+            close();
+            runOp(
+              { type: 'rowRename', from: name, to: input.input.value.trim() },
+              `linha renomeada para ${input.input.value.trim()}`,
+            );
+          };
+          input.input.addEventListener('keydown', (e) => e.key === 'Enter' && submit());
+          row2.append(plain('Cancelar', close), primary('Renomear', submit));
+          body.append(input.el, row2);
+        });
+      }
+
+      const selectField = (label, options, emptyLabel) => {
+        const div = document.createElement('label');
+        div.className = 'flex flex-col gap-1 text-xs text-zinc-400';
+        div.innerHTML = `<span></span>
+          <select class="bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-100"></select>`;
+        div.querySelector('span').textContent = label;
+        const select = div.querySelector('select');
+        if (emptyLabel) select.append(new Option(emptyLabel, ''));
+        for (const option of options) select.append(new Option(option, option));
+        return { el: div, input: select };
+      };
+      function rowAddModal() {
+        const table = isTable();
+        openModal('Nova linha', (body, close) => {
+          const name = field('Nome da linha', '', 'ex.: fence');
+          const cells = table ? null : field('Células iniciais (opcional)', '', 'ex.: 0 1 2');
+          if (table) {
+            const hint = document.createElement('p');
+            hint.className = 'text-xs text-violet-300/80';
+            hint.textContent = `Modo tabela: a linha nasce com as colunas padronizadas (${(state.layout.columns ?? []).join(' ') || 'nenhuma ainda'}).`;
+            body.append(hint);
+          }
+          const at = field('Posição (vazio = fim)', '', '0-based');
+          const row2 = document.createElement('div');
+          row2.className = 'flex gap-2 justify-end';
+          const submit = () => {
+            if (!name.input.value.trim()) return toast('informe o nome', 'error');
+            close();
+            runOp(
+              {
+                type: 'rowAdd',
+                name: name.input.value.trim(),
+                cells: cells ? cells.input.value.split(/[\s,]+/).filter(Boolean) : undefined,
+                at: at.input.value === '' ? undefined : Number(at.input.value),
+              },
+              `linha ${name.input.value.trim()} adicionada`,
+            );
+          };
+          name.input.addEventListener('keydown', (e) => e.key === 'Enter' && submit());
+          row2.append(plain('Cancelar', close), primary('Adicionar', submit));
+          body.append(name.el, ...(cells ? [cells.el] : []), at.el, row2);
+        });
+      }
+
+      // ----------------------------------------------------------- mode modal
+      function modeModal() {
+        const table = isTable();
+        openModal(`Tipo do layout: ${table ? 'tabela' : 'livre'}`, (body, close) => {
+          const hint = document.createElement('p');
+          hint.className = 'text-xs text-zinc-500';
+          hint.textContent = table
+            ? 'Tabela: todas as linhas compartilham o mesmo conjunto de colunas. Trocar para LIVRE dá a cada linha uma cópia própria das colunas (pintura preservada).'
+            : 'Livre: cada linha tem suas próprias células. Trocar para TABELA padroniza: um único conjunto de colunas para todas as linhas — pintura é preservada onde os labels coincidem.';
+          body.append(hint);
+          if (!table) {
+            const first = state.layout.rows[0];
+            const columns = field(
+              'Colunas da tabela',
+              (first ? effCells(first) : []).join(' '),
+              'ex.: self up down left right',
+            );
+            const row2 = document.createElement('div');
+            row2.className = 'flex gap-2 justify-end';
+            row2.append(
+              plain('Cancelar', close),
+              primary('Virar tabela', () => {
+                const list = columns.input.value.split(/[\s,]+/).filter(Boolean);
+                if (!list.length) return toast('informe as colunas', 'error');
+                close();
+                runOp(
+                  { type: 'setMode', mode: 'table', columns: list },
+                  `layout agora é uma tabela (${list.length} colunas)`,
+                );
+              }),
+            );
+            body.append(columns.el, row2);
+          } else {
+            const row2 = document.createElement('div');
+            row2.className = 'flex gap-2 justify-end';
+            row2.append(
+              plain('Cancelar', close),
+              primary('Virar livre', () => {
+                close();
+                runOp(
+                  { type: 'setMode', mode: 'free' },
+                  'layout agora é livre (cada linha com suas células)',
+                );
+              }),
+            );
+            body.append(row2);
+          }
+        });
+      }
+
+      // --------------------------------------------------------- sheet modals
+      function sheetAddModal() {
+        openModal('Nova folha (mesmo layout)', (body, close) => {
+          const name = field('Nomes (ex.: spring summer)', '', 'sem extensão');
+          const row2 = document.createElement('div');
+          row2.className = 'flex gap-2 justify-end';
+          const submit = () => {
+            const names = name.input.value.split(/[\s,]+/).filter(Boolean);
+            if (!names.length) return toast('informe ao menos um nome', 'error');
+            close();
+            runOp({ type: 'sheetAdd', names }, `folha(s) ${names.join(', ')} adicionada(s)`);
+          };
+          name.input.addEventListener('keydown', (e) => e.key === 'Enter' && submit());
+          row2.append(plain('Cancelar', close), primary('Adicionar', submit));
+          body.append(name.el, row2);
+        });
+      }
+
+      // --------------------------------------------------------- layout picker
+      async function refreshLayouts(selectPath) {
+        const { layouts } = await api('/api/layouts');
+        const select = $('layout-select');
+        select.innerHTML = '<option value="">— abrir layout —</option>';
+        for (const item of layouts) {
+          const opt = document.createElement('option');
+          opt.value = item.path;
+          opt.textContent = `${item.title} (${item.path}) — ${item.rows} linhas, ${item.sheets} folhas`;
+          select.appendChild(opt);
+        }
+        if (selectPath) select.value = selectPath;
+      }
+
+      async function openLayout(path) {
+        try {
+          setState(await api(`/api/state?path=${encodeURIComponent(path)}`));
+          await refreshLayouts(path);
+        } catch (error) {
+          toast(error.message, 'error');
+        }
+      }
+
+      function newLayoutModal() {
+        openModal('Novo layout', (body, close) => {
+          const path = field(
+            'Arquivo (relativo ao repo)',
+            'assets/sheets/',
+            'assets/sheets/props.json',
+          );
+          const title = field('Título', 'master sheet');
+          const tile = field('Tile (px)', '64');
+          const mode = selectField('Tipo', ['livre', 'tabela']);
+          const columns = field(
+            'Colunas da tabela',
+            'self up down left right',
+            'só no tipo tabela',
+          );
+          columns.el.classList.add('hidden');
+          mode.input.addEventListener('change', () =>
+            columns.el.classList.toggle('hidden', mode.input.value !== 'tabela'),
+          );
+          const hint = document.createElement('p');
+          hint.className = 'text-xs text-zinc-500';
+          hint.textContent =
+            'Livre: cada linha tem suas próprias células. Tabela: um conjunto de colunas padronizado para todas as linhas. O layout nasce com uma folha (nome do arquivo) — o resto você monta no editor.';
+          const row2 = document.createElement('div');
+          row2.className = 'flex gap-2 justify-end';
+          row2.append(
+            plain('Cancelar', close),
+            primary('Criar', async () => {
+              try {
+                const file = path.input.value.trim();
+                const base = (file.split('/').pop() ?? 'sheet').replace(/\.json$/, '');
+                const table = mode.input.value === 'tabela';
+                const created = await post('/api/create', {
+                  path: file,
+                  title: title.input.value.trim(),
+                  tileSize: Number(tile.input.value),
+                  sheets: [base || 'sheet'],
+                  mode: table ? 'table' : undefined,
+                  columns: table ? columns.input.value.split(/[\s,]+/).filter(Boolean) : undefined,
+                });
+                close();
+                setState(created);
+                await refreshLayouts(created.path);
+                toast(`layout criado: ${created.path}`, 'ok');
+              } catch (error) {
+                toast(error.message, 'error');
+              }
+            }),
+          );
+          body.append(path.el, title.el, tile.el, mode.el, columns.el, hint, row2);
+        });
+      }
+
+      // ------------------------------------------------------------- wire up
+      $('btn-new').addEventListener('click', newLayoutModal);
+      $('btn-mode').addEventListener('click', modeModal);
+      $('layout-select').addEventListener(
+        'change',
+        (e) => e.target.value && openLayout(e.target.value),
+      );
+      $('btn-render').addEventListener('click', async () => {
+        try {
+          setState(await post('/api/render', { path: state.path }));
+          toast('folhas re-renderizadas', 'ok');
+        } catch (error) {
+          toast(error.message, 'error');
+        }
+      });
+      $('btn-title').addEventListener('click', () => {
+        openModal('Renomear título', (body, close) => {
+          const input = field('Título do layout', state.layout.title);
+          const row2 = document.createElement('div');
+          row2.className = 'flex gap-2 justify-end';
+          const submit = () => {
+            close();
+            runOp({ type: 'setTitle', title: input.input.value.trim() }, 'título atualizado');
+          };
+          input.input.addEventListener('keydown', (e) => e.key === 'Enter' && submit());
+          row2.append(plain('Cancelar', close), primary('Salvar', submit));
+          body.append(input.el, row2);
+        });
+      });
+      $('zoom-in').addEventListener(
+        'click',
+        () => ((zoom = Math.min(3, zoom + 0.25)), applyZoom()),
+      );
+      $('zoom-out').addEventListener(
+        'click',
+        () => ((zoom = Math.max(0.25, zoom - 0.25)), applyZoom()),
+      );
+      document.addEventListener('keydown', (e) => e.key === 'Escape' && closeModal());
+
+      (async () => {
+        const last = localStorage.getItem('pixelmap:last');
+        await refreshLayouts(last ?? undefined);
+        if (last) await openLayout(last).catch(() => refreshLayouts());
+      })();
+    </script>
+  </body>
+</html>
