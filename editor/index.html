@@ -436,8 +436,12 @@
           );
         });
 
-        // Ghost "+ linha": a full-width bar hugging the bottom of the grid,
-        // aligned with the cell columns so it reads as the next row's slot
+        // Ghost "+ linha": the sheet background extends into an apron below
+        // the PNG and the bar lives inside it, so it reads as part of the grid
+        const apron = document.createElement('div');
+        apron.className = 'rounded-b-lg';
+        apron.style.background = '#20202a';
+        place(apron, 0, state.geometry.height, state.geometry.width, 38);
         const ghostRow = document.createElement('button');
         ghostRow.className =
           'flex items-center justify-center gap-1 border border-dashed border-zinc-600/70 rounded-sm ' +
@@ -446,9 +450,9 @@
         ghostRow.addEventListener('click', () => rowAddModal());
         place(
           ghostRow,
-          2,
-          state.geometry.height - STYLE.marginBottom + 4,
-          state.geometry.width - 2 - STYLE.marginRight,
+          10,
+          state.geometry.height + 4,
+          state.geometry.width - 10 - STYLE.marginRight,
           26,
         );
       }
