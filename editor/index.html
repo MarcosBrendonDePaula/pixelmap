@@ -110,6 +110,8 @@
       // Active drag source: {kind:'cell',row,label} | {kind:'row',name} | null.
       // dataTransfer.getData is unavailable during dragover, hence this var.
       let dragCtx = null;
+      // Stage width including ghost controls that extend past the sheet PNG
+      let stageW = 0;
 
       const $ = (id) => document.getElementById(id);
 
@@ -443,30 +445,43 @@
           );
         });
 
-        // Ghost "+ linha": the sheet background extends into an apron below
-        // the PNG and the bar lives inside it, so it reads as part of the grid
+        // The sheet background extends into aprons around the PNG so the
+        // ghost controls always sit on it: a right strip when the widest
+        // row's "+" slot passes the sheet edge, and a bottom strip for the
+        // "+ linha" bar.
+        const maxCells = Math.max(0, ...state.layout.rows.map((row) => effCells(row).length));
+        const ghostRight = state.geometry.marginLeft + maxCells * pitch().x + tile + 6;
+        stageW = Math.max(state.geometry.width, ghostRight);
+        if (stageW > state.geometry.width) {
+          const apronRight = document.createElement('div');
+          apronRight.className = 'rounded-r-lg';
+          apronRight.style.background = '#20202a';
+          place(
+            apronRight,
+            state.geometry.width,
+            0,
+            stageW - state.geometry.width,
+            state.geometry.height,
+          );
+        }
         const apron = document.createElement('div');
         apron.className = 'rounded-b-lg';
         apron.style.background = '#20202a';
-        place(apron, 0, state.geometry.height, state.geometry.width, 38);
+        place(apron, 0, state.geometry.height, stageW, 38);
         const ghostRow = document.createElement('button');
         ghostRow.className =
           'flex items-center justify-center gap-1 border border-dashed border-zinc-600/70 rounded-sm ' +
           'bg-zinc-500/10 text-zinc-500 text-xs hover:text-emerald-300 hover:border-emerald-500 hover:bg-emerald-400/10';
         ghostRow.textContent = '+ linha';
         ghostRow.addEventListener('click', () => rowAddModal());
-        place(
-          ghostRow,
-          10,
-          state.geometry.height + 4,
-          state.geometry.width - 10 - STYLE.marginRight,
-          26,
-        );
+        place(ghostRow, 10, state.geometry.height + 4, stageW - 10 - STYLE.marginRight, 26);
+        applyZoom(); // stageW may have grown past the sheet width
       }
 
       function applyZoom() {
         $('stage').style.transform = `scale(${zoom})`;
-        $('stage-outer').style.width = `${Math.ceil(state.geometry.width * zoom)}px`;
+        $('stage-outer').style.width =
+          `${Math.ceil(Math.max(stageW, state.geometry.width) * zoom)}px`;
         $('stage-outer').style.height = `${Math.ceil((state.geometry.height + 40) * zoom)}px`;
         $('zoom-label').textContent = `${Math.round(zoom * 100)}%`;
       }
@@ -503,7 +518,14 @@
               };
               input.click();
             }),
-            plain('⬇️ Baixar célula', () => window.open(preview.src, '_blank')),
+            plain('⬇️ Baixar tile', () => {
+              // Real file download (row_label.png) — edit it externally and
+              // bring it back with "Enviar imagem"
+              const a = document.createElement('a');
+              a.href = preview.src;
+              a.download = `${row}_${label}.png`.replaceAll('/', '-');
+              a.click();
+            }),
             plain('🧽 Limpar (magenta)', () =>
               confirmModal(`Limpar a pintura de ${row}/${label} em TODAS as folhas?`, () =>
                 runOp({ type: 'cellClear', row, labels: [label] }, `célula ${row}/${label} limpa`),
