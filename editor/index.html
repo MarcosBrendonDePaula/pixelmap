@@ -390,10 +390,13 @@
             place(cell, x, rowY(r), tile, tile);
           });
 
-          // Ghost "+" cell at the row's end — also a "move to end" drop target
+          // Ghost "+" cell at the row's end — also a "move to end" drop target.
+          // Sized/styled to read as the next empty slot of the grid.
           const ghost = document.createElement('button');
           ghost.className =
-            'border border-dashed border-zinc-600 rounded text-zinc-500 text-xl hover:text-emerald-300 hover:border-emerald-500';
+            'flex items-center justify-center border border-dashed border-zinc-600/70 rounded-sm ' +
+            'bg-zinc-500/10 text-zinc-500 leading-none hover:text-emerald-300 hover:border-emerald-500 hover:bg-emerald-400/10';
+          ghost.style.fontSize = `${Math.max(12, Math.round(tile / 2.5))}px`;
           ghost.textContent = '+';
           ghost.title = table
             ? 'adicionar colunas (todas as linhas)'
@@ -433,13 +436,21 @@
           );
         });
 
-        // Ghost "+ linha" under the last row
+        // Ghost "+ linha": a full-width bar hugging the bottom of the grid,
+        // aligned with the cell columns so it reads as the next row's slot
         const ghostRow = document.createElement('button');
         ghostRow.className =
-          'border border-dashed border-zinc-600 rounded text-zinc-500 text-sm hover:text-emerald-300 hover:border-emerald-500';
+          'flex items-center justify-center gap-1 border border-dashed border-zinc-600/70 rounded-sm ' +
+          'bg-zinc-500/10 text-zinc-500 text-xs hover:text-emerald-300 hover:border-emerald-500 hover:bg-emerald-400/10';
         ghostRow.textContent = '+ linha';
         ghostRow.addEventListener('click', () => rowAddModal());
-        place(ghostRow, 10, rowY(state.layout.rows.length) - STYLE.labelHeight + 4, 160, 30);
+        place(
+          ghostRow,
+          2,
+          state.geometry.height - STYLE.marginBottom + 4,
+          state.geometry.width - 2 - STYLE.marginRight,
+          26,
+        );
       }
 
       function applyZoom() {
