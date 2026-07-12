@@ -1,4 +1,12 @@
-import { indexPixelMapCells, isPixelMapEmptyColor, type PixelMapCells } from './index';
+import {
+  indexPixelMapCells,
+  isPixelMapEmptyColor,
+  pixelMapCellUV,
+  pixelMapFrameName,
+  type PixelMapCells,
+  type PixelMapUVOptions,
+  type PixelMapUVRect,
+} from './index';
 
 /**
  * Browser-side pixelmap loading, engine-agnostic: fetches a sheet's
@@ -17,6 +25,11 @@ export interface PixelMapImageData {
   data: Uint8ClampedArray;
   width: number;
   height: number;
+  /**
+   * Texture coordinates of a frame, straight from the shipped positioning —
+   * consumers never compute sheet layout themselves. Null for unknown frames.
+   */
+  frameUV: (row: string, label: string, options?: PixelMapUVOptions) => PixelMapUVRect | null;
 }
 
 /** Decodes the PNG and keys the "empty" color out to transparent pixels. */
@@ -55,11 +68,16 @@ export async function loadPixelMapImage(baseUrl: string): Promise<PixelMapImageD
         `${cells.width}x${cells.height} — re-render the sheet`,
     );
   }
+  const frames = indexPixelMapCells(cells);
   return {
     cells,
-    frames: indexPixelMapCells(cells),
+    frames,
     data: image.data,
     width: image.width,
     height: image.height,
+    frameUV: (row, label, options) => {
+      const cell = frames.get(pixelMapFrameName(row, label));
+      return cell ? pixelMapCellUV(cells, cell, options) : null;
+    },
   };
 }

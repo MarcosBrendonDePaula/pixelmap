@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   indexPixelMapCells,
+  pixelMapCellUV,
   isPixelMapEmptyColor,
   pixelMapCells,
   pixelMapFrameName,
@@ -140,5 +141,19 @@ describe('isPixelMapEmptyColor', () => {
     expect(isPixelMapEmptyColor(230, 20, 240)).toBe(true);
     expect(isPixelMapEmptyColor(200, 30, 40)).toBe(false);
     expect(isPixelMapEmptyColor(255, 255, 255)).toBe(false);
+  });
+});
+
+describe('pixelMapCellUV', () => {
+  it('turns shipped cell positions into texture coordinates', () => {
+    const cells = { tileSize: 32, width: 128, height: 64, cells: [] };
+    const cell = { row: 'stone', label: 'self', x: 32, y: 0 };
+    const uv = pixelMapCellUV(cells, cell);
+    expect(uv).toEqual({ u0: 0.25, u1: 0.5, v0: 1, v1: 0.5 });
+    const flat = pixelMapCellUV(cells, cell, { invertY: false });
+    expect(flat).toEqual({ u0: 0.25, u1: 0.5, v0: 0, v1: 0.5 });
+    const inset = pixelMapCellUV(cells, cell, { inset: 0.35, invertY: false });
+    expect(inset.u0).toBeCloseTo((32 + 0.35) / 128);
+    expect(inset.v1).toBeCloseTo((32 - 0.35) / 64);
   });
 });

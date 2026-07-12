@@ -188,3 +188,36 @@ export function isPixelMapEmptyColor(r: number, g: number, b: number): boolean {
   const [kr, kg, kb] = PIXELMAP_EMPTY_COLOR;
   return Math.abs(r - kr) + Math.abs(g - kg) + Math.abs(b - kb) < PIXELMAP_EMPTY_TOLERANCE;
 }
+
+export interface PixelMapUVRect {
+  u0: number;
+  v0: number;
+  u1: number;
+  v1: number;
+}
+
+export interface PixelMapUVOptions {
+  /** Pixels shaved off each edge so scaling never samples neighbors. */
+  inset?: number;
+  /** GL convention (v=1 at the image top) — the default; false = image space. */
+  invertY?: boolean;
+}
+
+/**
+ * UV rect of one cell inside its sheet. The positioning ships with the
+ * pixelmap (cells.json), so consumers never compute layout themselves —
+ * this turns a cell straight into texture coordinates.
+ */
+export function pixelMapCellUV(
+  cells: PixelMapCells,
+  cell: PixelMapCell,
+  options: PixelMapUVOptions = {},
+): PixelMapUVRect {
+  const inset = options.inset ?? 0;
+  const invertY = options.invertY ?? true;
+  const u0 = (cell.x + inset) / cells.width;
+  const u1 = (cell.x + cells.tileSize - inset) / cells.width;
+  const top = (cell.y + inset) / cells.height;
+  const bottom = (cell.y + cells.tileSize - inset) / cells.height;
+  return invertY ? { u0, u1, v0: 1 - top, v1: 1 - bottom } : { u0, u1, v0: top, v1: bottom };
+}
