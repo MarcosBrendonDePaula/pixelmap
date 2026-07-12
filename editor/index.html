@@ -80,7 +80,10 @@
       </div>
       <div id="stage-outer" class="relative hidden">
         <div id="stage" class="relative origin-top-left">
-          <img id="sheet-img" class="pixelated block select-none" draggable="false" alt="" />
+          <!-- max-w-none: the Tailwind preflight's img max-width would shrink
+               the sheet a second time when the zoomed stage gets narrower
+               than the PNG, detaching it from the overlay buttons -->
+          <img id="sheet-img" class="pixelated block select-none max-w-none" draggable="false" alt="" />
           <div id="overlays" class="absolute inset-0"></div>
         </div>
       </div>
