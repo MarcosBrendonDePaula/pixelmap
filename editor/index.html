@@ -6,73 +6,107 @@
     <title>Pixelmap — editor de folhas mestres</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
+      @import url('https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap');
       .pixelated {
         image-rendering: pixelated;
       }
+      .font-pixel {
+        font-family: 'Silkscreen', ui-monospace, monospace;
+      }
+    </style>
+    <style type="text/tailwindcss">
+      /* Segmented control: one bordered pill, buttons divided inside */
+      .segmented {
+        @apply flex items-stretch rounded-lg border border-zinc-800 bg-zinc-900/70 divide-x divide-zinc-800 overflow-hidden;
+      }
+      .navbtn {
+        @apply flex items-center gap-1.5 px-3 py-1.5 text-[13px] text-zinc-300 whitespace-nowrap transition-colors hover:text-zinc-50 hover:bg-zinc-800/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fuchsia-500/70;
+      }
+      .navbtn .navicon {
+        @apply text-zinc-500 transition-colors;
+      }
+      .navbtn:hover .navicon {
+        @apply text-fuchsia-400;
+      }
     </style>
   </head>
-  <body class="bg-zinc-950 text-zinc-100 min-h-screen font-sans">
-    <!-- Top bar -->
-    <header
-      class="sticky top-0 z-30 bg-zinc-900/95 backdrop-blur border-b border-zinc-800 px-4 py-2 flex items-center gap-3 flex-wrap"
-    >
-      <h1 class="text-sm font-semibold text-emerald-400 whitespace-nowrap">🗺️ pixelmap</h1>
-      <select
-        id="layout-select"
-        class="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm min-w-52"
-      ></select>
-      <button
-        id="btn-new"
-        class="px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-sm font-medium"
-      >
-        Novo layout
-      </button>
-      <button id="btn-title" class="px-3 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-sm hidden">
-        Renomear título
-      </button>
-      <button
-        id="btn-mode"
-        class="px-3 py-1 rounded bg-violet-700/60 hover:bg-violet-600/60 text-sm hidden"
-      ></button>
-      <button
-        id="btn-render"
-        class="px-3 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-sm hidden"
-      >
-        Re-render
-      </button>
-      <span class="flex-1"></span>
-      <div id="zoom-box" class="items-center gap-1 hidden">
-        <button id="zoom-out" class="w-7 h-7 rounded bg-zinc-800 hover:bg-zinc-700 text-sm">
-          −
+  <body class="bg-zinc-950 text-zinc-100 h-screen flex flex-col font-sans">
+    <!-- Top bar: row 1 = identity + file; row 2 (contextual) = tabs + actions -->
+    <header class="sticky top-0 z-30 border-b border-zinc-800/80 bg-zinc-950/85 backdrop-blur">
+      <div
+        class="h-px bg-gradient-to-r from-fuchsia-500/80 via-fuchsia-500/10 to-transparent"
+      ></div>
+      <div class="px-4 py-2 flex items-center gap-3 min-w-0">
+        <div
+          class="flex items-center gap-2.5 select-none shrink-0"
+          title="pixelmap — a célula magenta é o vazio que passeia pela folha"
+        >
+          <div
+            id="logo-grid"
+            class="grid grid-cols-4 gap-[2px] p-[3px] rounded-md bg-zinc-900 border border-zinc-800"
+          ></div>
+          <div class="leading-none">
+            <div class="font-pixel text-[13px] text-zinc-100">
+              pixel<span class="text-fuchsia-400">map</span>
+            </div>
+            <div class="mt-1 text-[9px] uppercase tracking-[0.22em] text-zinc-500">
+              tile sheet studio
+            </div>
+          </div>
+        </div>
+        <div class="h-6 w-px bg-zinc-800 shrink-0"></div>
+        <select
+          id="layout-select"
+          class="min-w-0 max-w-96 flex-1 truncate rounded-lg border border-zinc-800 bg-zinc-900/70 px-2.5 py-1.5 text-[13px] text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-500/70"
+        ></select>
+        <button
+          id="btn-new"
+          class="shrink-0 rounded-lg bg-emerald-600 px-3 py-1.5 text-[13px] font-medium transition-colors hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/70"
+        >
+          ＋ Novo layout
         </button>
-        <span id="zoom-label" class="text-xs text-zinc-400 w-10 text-center">100%</span>
-        <button id="zoom-in" class="w-7 h-7 rounded bg-zinc-800 hover:bg-zinc-700 text-sm">
-          +
-        </button>
+        <span class="flex-1"></span>
+        <span id="info" class="hidden lg:block shrink-0 font-mono text-[11px] text-zinc-600"></span>
       </div>
-      <button
-        id="btn-upload"
-        class="px-3 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-sm hidden"
-        title="substitui o PNG da folha atual (mesmas dimensões)"
-      >
-        Enviar PNG
-      </button>
-      <a
-        id="btn-download"
-        class="px-3 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-sm hidden"
-        download
-        >Baixar PNG</a
-      >
+      <div id="toolbar" class="hidden px-4 pb-2 items-center gap-2 flex-wrap">
+        <nav id="tabs" class="flex min-w-0 flex-1 items-center gap-1 flex-wrap"></nav>
+        <div id="group-layout" class="segmented shrink-0">
+          <button id="btn-title" class="navbtn"><span class="navicon">✎</span>Título</button>
+          <button id="btn-mode" class="navbtn"></button>
+          <button
+            id="btn-render"
+            class="navbtn"
+            title="reconstrói as folhas a partir do layout (pintura preservada)"
+          >
+            <span class="navicon">⟳</span>Sincronizar
+          </button>
+        </div>
+        <div id="zoom-box" class="segmented shrink-0">
+          <button id="zoom-out" class="navbtn w-8 justify-center px-0">−</button>
+          <button
+            id="zoom-label"
+            class="navbtn w-14 justify-center px-0 font-mono text-[12px]"
+            title="voltar a 100%"
+          >
+            100%
+          </button>
+          <button id="zoom-in" class="navbtn w-8 justify-center px-0">+</button>
+        </div>
+        <div id="group-png" class="segmented shrink-0">
+          <button
+            id="btn-upload"
+            class="navbtn"
+            title="substitui o PNG da folha atual (mesmas dimensões)"
+          >
+            <span class="navicon">⇡</span>Enviar PNG
+          </button>
+          <a id="btn-download" class="navbtn" download><span class="navicon">⇣</span>Baixar PNG</a>
+        </div>
+      </div>
     </header>
 
-    <!-- Sheet tabs -->
-    <nav
-      id="tabs"
-      class="px-4 py-2 flex items-center gap-1 flex-wrap border-b border-zinc-800/60 hidden"
-    ></nav>
-
     <!-- Canvas -->
-    <main id="viewport" class="p-4 overflow-auto" style="height: calc(100vh - 92px)">
+    <main id="viewport" class="p-4 overflow-auto flex-1">
       <div id="empty-hint" class="text-zinc-500 text-sm mt-10 text-center">
         Abra um layout existente acima ou crie um novo — o esqueleto (linhas × variações,
         magenta&nbsp;=&nbsp;vazio) é gerado e mantido pela ferramenta; pinte as células em qualquer
@@ -83,7 +117,12 @@
           <!-- max-w-none: the Tailwind preflight's img max-width would shrink
                the sheet a second time when the zoomed stage gets narrower
                than the PNG, detaching it from the overlay buttons -->
-          <img id="sheet-img" class="pixelated block select-none max-w-none" draggable="false" alt="" />
+          <img
+            id="sheet-img"
+            class="pixelated block select-none max-w-none"
+            draggable="false"
+            alt=""
+          />
           <div id="overlays" class="absolute inset-0"></div>
         </div>
       </div>
@@ -241,12 +280,20 @@
         const has = !!state && !!currentSheet;
         $('empty-hint').classList.toggle('hidden', !!state);
         $('stage-outer').classList.toggle('hidden', !has);
-        for (const id of ['btn-render', 'btn-title', 'btn-mode', 'btn-upload', 'btn-download'])
-          $(id).classList.toggle('hidden', !state);
-        if (state) $('btn-mode').textContent = isTable() ? '▦ Tipo: tabela' : '▤ Tipo: livre';
-        $('zoom-box').classList.toggle('hidden', !has);
-        $('zoom-box').classList.toggle('flex', has);
-        $('tabs').classList.toggle('hidden', !state);
+        $('toolbar').classList.toggle('hidden', !state);
+        $('toolbar').classList.toggle('flex', !!state);
+        for (const id of ['zoom-box', 'group-png']) {
+          $(id).classList.toggle('hidden', !has);
+          $(id).classList.toggle('flex', has);
+        }
+        if (state) {
+          $('btn-mode').innerHTML =
+            `<span class="navicon">${isTable() ? '▦' : '▤'}</span>Tipo: ${isTable() ? 'tabela' : 'livre'}`;
+          $('info').textContent =
+            `${state.path} · ${isTable() ? 'tabela' : 'livre'} · tile ${state.layout.tileSize}px · ${state.geometry.width}×${state.geometry.height}`;
+        } else {
+          $('info').textContent = '';
+        }
         if (!state) return;
 
         // Sheet tabs
@@ -280,10 +327,6 @@
         add.textContent = '+ folha';
         add.addEventListener('click', sheetAddModal);
         tabs.appendChild(add);
-        const info = document.createElement('span');
-        info.className = 'ml-auto text-xs text-zinc-500';
-        info.textContent = `${state.path} — ${isTable() ? 'tabela' : 'livre'} — tile ${state.layout.tileSize}px — ${state.geometry.width}×${state.geometry.height}`;
-        tabs.appendChild(info);
 
         if (!currentSheet) return;
 
@@ -1046,7 +1089,50 @@
         'click',
         () => ((zoom = Math.max(0.25, zoom - 0.25)), applyZoom()),
       );
+      $('zoom-label').addEventListener('click', () => ((zoom = 1), applyZoom()));
       document.addEventListener('keydown', (e) => e.key === 'Escape' && closeModal());
+
+      // Living logo: a mini tilesheet whose magenta cell (the pixelmap's
+      // "empty") wanders the grid. Still under prefers-reduced-motion.
+      (() => {
+        const PALETTE = [
+          '#5c8a3c',
+          '#6fae4e',
+          '#8a6a43',
+          '#4e8fc7',
+          '#d8b56b',
+          '#8b8b93',
+          '#4e8a3a',
+          '#7a5a38',
+          '#5c8a3c',
+          '#4e8fc7',
+          '#6fae4e',
+          '#8b8b93',
+          '#d8b56b',
+          '#8a6a43',
+          '#5c8a3c',
+          '#6fae4e',
+        ];
+        const grid = $('logo-grid');
+        const cells = PALETTE.map((color) => {
+          const cell = document.createElement('span');
+          cell.className = 'w-[5px] h-[5px] rounded-[1px] transition-colors duration-500';
+          cell.style.background = color;
+          grid.appendChild(cell);
+          return cell;
+        });
+        let empty = 5;
+        cells[empty].style.background = '#ff00ff';
+        if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          setInterval(() => {
+            cells[empty].style.background = PALETTE[empty];
+            let next = Math.floor(Math.random() * cells.length);
+            if (next === empty) next = (next + 7) % cells.length;
+            empty = next;
+            cells[empty].style.background = '#ff00ff';
+          }, 2400);
+        }
+      })();
 
       (async () => {
         const last = localStorage.getItem('pixelmap:last');
