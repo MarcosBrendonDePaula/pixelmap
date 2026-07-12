@@ -452,6 +452,8 @@
         const maxCells = Math.max(0, ...state.layout.rows.map((row) => effCells(row).length));
         const ghostRight = state.geometry.marginLeft + maxCells * pitch().x + tile + 6;
         stageW = Math.max(state.geometry.width, ghostRight);
+        // Aprons must sit BEHIND the ghost buttons (prepend), or they paint
+        // over them and the "+" slots past the sheet edge all but vanish
         if (stageW > state.geometry.width) {
           const apronRight = document.createElement('div');
           apronRight.className = 'rounded-r-lg';
@@ -463,11 +465,13 @@
             stageW - state.geometry.width,
             state.geometry.height,
           );
+          overlays.prepend(apronRight);
         }
         const apron = document.createElement('div');
         apron.className = 'rounded-b-lg';
         apron.style.background = '#20202a';
         place(apron, 0, state.geometry.height, stageW, 38);
+        overlays.prepend(apron);
         const ghostRow = document.createElement('button');
         ghostRow.className =
           'flex items-center justify-center gap-1 border border-dashed border-zinc-600/70 rounded-sm ' +
