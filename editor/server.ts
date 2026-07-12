@@ -59,7 +59,8 @@ function listLayouts(): { path: string; title: string; sheets: number; rows: num
             typeof data.tileSize === 'number' &&
             Array.isArray(data.sheets) &&
             Array.isArray(data.rows) &&
-            data.rows.every((row) => typeof row?.name === 'string' && Array.isArray(row?.cells))
+            // Table-mode rows carry no cells of their own — name is enough
+            data.rows.every((row) => typeof row?.name === 'string')
           ) {
             found.push({
               path: relative(ROOT, abs).replaceAll(sep, '/'),
