@@ -216,6 +216,7 @@ export type SheetOp =
   | { type: 'rowRemove'; names: string[] }
   | { type: 'rowRename'; from: string; to: string }
   | { type: 'rowMove'; name: string; index: number }
+  | { type: 'rowSetAnim'; row: string; anim?: { fps: number; loop?: boolean } }
   | { type: 'cellAdd'; row: string; labels: string[]; at?: number }
   | { type: 'cellRemove'; row: string; labels: string[] }
   | { type: 'cellRename'; row: string; from: string; to: string }
@@ -311,6 +312,12 @@ export async function applyOp(layoutPath: string, op: SheetOp): Promise<PixelMap
         delete layout.columns;
         layout.mode = 'free';
       }
+      break;
+    }
+    case 'rowSetAnim': {
+      const row = findRow(layout, op.row);
+      if (op.anim) row.anim = op.anim;
+      else delete row.anim;
       break;
     }
     case 'cellAdd': {

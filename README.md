@@ -25,6 +25,28 @@ reordenar — os tiles pintados acompanham. Só `remove` e `clear` descartam.
 
 Vários PNGs (ex.: um por estação) compartilham o mesmo layout (`sheets`).
 
+## Animações
+
+Uma linha pode ser uma animação: as células viram os frames, em ordem.
+
+```bash
+npm run sheet -- row anim sheets/props.json walk 8        # 8 fps, loop
+npm run sheet -- row anim sheets/props.json splash 12 --once
+npm run sheet -- row anim sheets/props.json walk off      # remove
+```
+
+No editor web: linha → "🎞️ Animação…" (preview ao vivo, fps, loop). O
+`cells.json` carrega `animations: { walk: { fps, loop } }` e o loader devolve
+`animation('walk')` com `frameAt(t)`/`uvAt(t)` — o relógio é da lib, o
+consumidor só passa o tempo.
+
+## Memória
+
+`loadPixelMapImage` cacheia por URL (decodifica uma vez, mesmo com chamadas
+concorrentes) e devolve `release()`: chame depois de subir os pixels pra GPU
+pra liberar o buffer RGBA do heap — os metadados (frames, UVs, animações)
+continuam válidos. Uma folha = uma textura; frames são só coordenadas.
+
 ## Uso
 
 ```bash

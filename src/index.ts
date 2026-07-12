@@ -18,10 +18,19 @@
 
 export type PixelMapMode = 'free' | 'table';
 
+/** A row's cells played in order as an animation (frame 0 = first cell). */
+export interface PixelMapAnimation {
+  fps: number;
+  /** Defaults to true; false plays once and holds the last frame. */
+  loop?: boolean;
+}
+
 export interface PixelMapRow {
   name: string;
   /** Free mode: this row's own column labels. Unused in table mode. */
   cells?: string[];
+  /** When set, this row is an animation: its cells are the frames, in order. */
+  anim?: PixelMapAnimation;
 }
 
 /** Editable layout: one JSON drives N sheet PNGs (e.g. one per season). */
@@ -62,6 +71,22 @@ export interface PixelMapCells {
   width: number;
   height: number;
   cells: PixelMapCell[];
+  /** Animated rows: row name -> playback settings (frames = that row's cells). */
+  animations?: Record<string, PixelMapAnimation>;
+}
+
+/**
+ * Frame index of an animation at a given time (ms since it started playing).
+ * Pure math — loaders and editors use the same clock behavior.
+ */
+export function pixelMapAnimationIndex(
+  frameCount: number,
+  anim: PixelMapAnimation,
+  timeMs: number,
+): number {
+  if (frameCount <= 0) return 0;
+  const frame = Math.floor(Math.max(0, timeMs) * (anim.fps / 1000));
+  return (anim.loop ?? true) ? frame % frameCount : Math.min(frame, frameCount - 1);
 }
 
 /** Key color meaning "empty" inside a cell; keyed out to transparent on load. */
@@ -119,6 +144,9 @@ export function pixelMapLayoutError(layout: PixelMapLayout): string | null {
       const error = checkLabels(`row ${row.name}`, row.cells ?? []);
       if (error) return error;
     }
+    if (row.anim !== undefined && (!Number.isFinite(row.anim.fps) || row.anim.fps <= 0)) {
+      return `row ${row.name}: anim.fps must be a positive number`;
+    }
   }
   const sheets = new Set<string>();
   for (const sheet of layout.sheets) {
@@ -169,13 +197,21 @@ export function pixelMapGeometry(layout: PixelMapLayout): PixelMapGeometry {
 export function pixelMapCells(layout: PixelMapLayout): PixelMapCells {
   const geometry = pixelMapGeometry(layout);
   const cells: PixelMapCell[] = [];
+  const animations: Record<string, PixelMapAnimation> = {};
   layout.rows.forEach((row, rowIndex) => {
     pixelMapRowCells(layout, row).forEach((label, colIndex) => {
       const { x, y } = geometry.cellPos(rowIndex, colIndex);
       cells.push({ row: row.name, label, x, y });
     });
+    if (row.anim) animations[row.name] = row.anim;
   });
-  return { tileSize: layout.tileSize, width: geometry.width, height: geometry.height, cells };
+  return {
+    tileSize: layout.tileSize,
+    width: geometry.width,
+    height: geometry.height,
+    cells,
+    ...(Object.keys(animations).length ? { animations } : {}),
+  };
 }
 
 /** Frame lookup map: `row/label` -> cell position. */

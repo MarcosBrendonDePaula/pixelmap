@@ -66,6 +66,7 @@ const USAGE = `usage: npm run sheet -- <command> ...
   row remove <layout.json> <name...>          discards the row's painted cells
   row rename <layout.json> <old> <new>        keeps painted cells
   row move   <layout.json> <name> <index>
+  row anim   <layout.json> <row> <fps|off> [--once]   row's cells play as animation frames
 
   cell ops (FREE mode — each row owns its cells):
   cell add    <layout.json> <row> <label...> [--at N]
@@ -118,6 +119,15 @@ function parseOp(command: string, rest: string[]): { layoutPath: string; op: She
     case 'row move': {
       const [layoutPath, name, index] = need(rest[0], rest[1], rest[2]);
       return { layoutPath, op: { type: 'rowMove', name, index: Number(index) } };
+    }
+    case 'row anim': {
+      const positional = rest.filter((arg) => arg !== '--once');
+      const [layoutPath, row, fps] = need(positional[0], positional[1], positional[2]);
+      if (fps === 'off') return { layoutPath, op: { type: 'rowSetAnim', row } };
+      return {
+        layoutPath,
+        op: { type: 'rowSetAnim', row, anim: { fps: Number(fps), loop: !rest.includes('--once') } },
+      };
     }
     case 'cell add': {
       const { positional, flags } = takeFlags(rest, ['at']);

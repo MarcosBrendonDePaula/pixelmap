@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   indexPixelMapCells,
+  pixelMapAnimationIndex,
   pixelMapCellUV,
   isPixelMapEmptyColor,
   pixelMapCells,
@@ -155,5 +156,32 @@ describe('pixelMapCellUV', () => {
     const inset = pixelMapCellUV(cells, cell, { inset: 0.35, invertY: false });
     expect(inset.u0).toBeCloseTo((32 + 0.35) / 128);
     expect(inset.v1).toBeCloseTo((32 - 0.35) / 64);
+  });
+});
+
+describe('animations', () => {
+  it('validates fps and ships animations in the cells metadata', () => {
+    expect(
+      pixelMapLayoutError(layout({ rows: [{ name: 'walk', cells: ['0'], anim: { fps: 0 } }] })),
+    ).toMatch(/anim.fps/);
+    const animated = layout({
+      rows: [
+        { name: 'walk', cells: ['0', '1', '2'], anim: { fps: 8 } },
+        { name: 'idle', cells: ['0'] },
+      ],
+    });
+    expect(pixelMapLayoutError(animated)).toBeNull();
+    const cells = pixelMapCells(animated);
+    expect(cells.animations).toEqual({ walk: { fps: 8 } });
+  });
+
+  it('clocks frames deterministically (loop and hold-last)', () => {
+    const loop = { fps: 4 };
+    expect(pixelMapAnimationIndex(4, loop, 0)).toBe(0);
+    expect(pixelMapAnimationIndex(4, loop, 250)).toBe(1);
+    expect(pixelMapAnimationIndex(4, loop, 1000)).toBe(0); // wrapped
+    const once = { fps: 4, loop: false };
+    expect(pixelMapAnimationIndex(4, once, 5000)).toBe(3); // holds last
+    expect(pixelMapAnimationIndex(0, loop, 500)).toBe(0); // empty row safe
   });
 });

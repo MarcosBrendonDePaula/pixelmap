@@ -300,7 +300,16 @@
           const rowBtn = document.createElement('button');
           rowBtn.className =
             'text-left rounded cursor-grab hover:bg-sky-400/10 hover:outline hover:outline-1 hover:outline-sky-500/60';
-          rowBtn.title = `linha ${row.name} — clique para editar, arraste para reordenar`;
+          rowBtn.title = row.anim
+            ? `linha ${row.name} — animação ${row.anim.fps}fps — clique para editar`
+            : `linha ${row.name} — clique para editar, arraste para reordenar`;
+          if (row.anim) {
+            const badge = document.createElement('span');
+            badge.className =
+              'absolute bottom-0 left-0 text-[9px] leading-none px-1 py-0.5 rounded bg-amber-600/40 text-amber-200 pointer-events-none';
+            badge.textContent = `🎞 ${row.anim.fps}fps`;
+            rowBtn.appendChild(badge);
+          }
           rowBtn.draggable = true;
           rowBtn.addEventListener('click', () => rowModal(row.name));
           rowBtn.addEventListener('dragstart', (e) => {
@@ -630,6 +639,7 @@
             isTable()
               ? plain('➕ Adicionar colunas', () => colAddModal())
               : plain('➕ Adicionar células', () => cellAddModal(name)),
+            plain('🎞️ Animação…', () => animModal(name)),
             plain('⬆️ Mover p/ cima', () => {
               if (index === 0) return toast('já é a primeira', 'error');
               close();
@@ -709,6 +719,75 @@
           name.input.addEventListener('keydown', (e) => e.key === 'Enter' && submit());
           row2.append(plain('Cancelar', close), primary('Adicionar', submit));
           body.append(name.el, ...(cells ? [cells.el] : []), at.el, row2);
+        });
+      }
+
+      // ------------------------------------------------------ animation modal
+      function animModal(name) {
+        const row = findRow(name);
+        const cellsOfRow = state.cells.cells.filter((c) => c.row === name);
+        openModal(`Animação — linha ${name}`, (body, close) => {
+          if (!cellsOfRow.length) {
+            const p = document.createElement('p');
+            p.className = 'text-sm text-zinc-400';
+            p.textContent = 'A linha não tem células — adicione frames primeiro.';
+            body.append(p, plain('Fechar', close));
+            return;
+          }
+          // Live preview: steps the sheet PNG background through the frames
+          const tile = state.layout.tileSize;
+          const scale = Math.max(1, Math.floor(128 / tile));
+          const preview = document.createElement('div');
+          preview.className = 'mx-auto border border-zinc-700 rounded pixelated';
+          preview.style.cssText =
+            `width:${tile * scale}px;height:${tile * scale}px;` +
+            `background-image:url('${$('sheet-img').src}');` +
+            `background-size:${state.geometry.width * scale}px ${state.geometry.height * scale}px;` +
+            `image-rendering:pixelated`;
+          const fps = field('FPS', String(row.anim?.fps ?? 8));
+          const loopWrap = document.createElement('label');
+          loopWrap.className = 'flex items-center gap-2 text-sm text-zinc-300';
+          loopWrap.innerHTML =
+            '<input type="checkbox" class="accent-emerald-500" /> repetir (loop)';
+          const loopInput = loopWrap.querySelector('input');
+          loopInput.checked = row.anim?.loop ?? true;
+
+          const start = performance.now();
+          const timer = setInterval(() => {
+            if (!preview.isConnected) return clearInterval(timer); // modal fechou
+            const rate = Math.max(0.1, Number(fps.input.value) || 1);
+            const t = performance.now() - start;
+            let index = Math.floor((t / 1000) * rate);
+            index = loopInput.checked
+              ? index % cellsOfRow.length
+              : Math.min(index, cellsOfRow.length - 1);
+            const cell = cellsOfRow[index];
+            preview.style.backgroundPosition = `-${cell.x * scale}px -${cell.y * scale}px`;
+          }, 30);
+          const cleanup = () => clearInterval(timer);
+
+          const row2 = document.createElement('div');
+          row2.className = 'flex gap-2 justify-end';
+          row2.append(
+            row.anim
+              ? danger('Remover animação', () => {
+                  cleanup();
+                  close();
+                  runOp({ type: 'rowSetAnim', row: name }, `animação removida de ${name}`);
+                })
+              : plain('Cancelar', () => (cleanup(), close())),
+            primary('Salvar', () => {
+              const rate = Number(fps.input.value);
+              if (!Number.isFinite(rate) || rate <= 0) return toast('FPS inválido', 'error');
+              cleanup();
+              close();
+              runOp(
+                { type: 'rowSetAnim', row: name, anim: { fps: rate, loop: loopInput.checked } },
+                `linha ${name} anima a ${rate}fps`,
+              );
+            }),
+          );
+          body.append(preview, fps.el, loopWrap, row2);
         });
       }
 
