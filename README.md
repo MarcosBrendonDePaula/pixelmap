@@ -68,7 +68,9 @@ arraste move a coluna em todas as linhas), upload de PNG direto numa célula
 - `pixelmap/engine` — render/edição das folhas com preservação de pixels (Node, usa `sharp`).
 - `pixelmap/browser` — carrega PNG + cells.json no navegador com chroma key aplicado; devolve
   RGBA cru + índice de frames, pronto pra virar textura em qualquer engine (Babylon, Three,
-  Pixi, WebGL puro). Os adapters de engine ficam no app consumidor.
+  Pixi, WebGL puro), além de `composeLayers()` — sprites em camadas com tint por camada
+  (personagens customizáveis a partir de rampas neutras). Os adapters de engine ficam no
+  app consumidor.
 
 ```ts
 import { pixelMapFrameName } from 'pixelmap';

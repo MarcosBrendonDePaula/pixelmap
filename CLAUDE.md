@@ -7,13 +7,13 @@ restructure without losing paint. Ships as TS **source** (no build step):
 
 ## Module map
 
-| Entry              | File                                     | Runs on        | Role                                                                                                                                                                                     |
-| ------------------ | ---------------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pixelmap`         | `src/index.ts`                           | anywhere       | Pure core: types, validation (`pixelMapLayoutError`), geometry, `pixelMapCells`, frame index, UV math (`pixelMapCellUV`), animation clock (`pixelMapAnimationIndex`). Zero deps.         |
-| `pixelmap/engine`  | `src/engine.ts`                          | Node (sharp)   | Render sheets, structural ops (`applyOp`/`SheetOp`), `createLayout`, `pasteCellImage`, `pasteSheetImage`, `cropCellPng`. Throws `SheetError`.                                            |
-| `pixelmap/browser` | `src/browser.ts`                         | browser        | `loadPixelMapImage(baseUrl)`: fetches `<base>.cells.json` + `<base>.png`, chroma-keys magenta→alpha, returns RGBA + `frames` + `frameUV()` + `animation()` + `release()`. Caches by URL. |
-| CLI                | `cli.ts`                                 | Node           | `npm run sheet -- <cmd>`; thin argv→`SheetOp` mapping. Run without args for usage.                                                                                                       |
-| Editor             | `editor/server.ts` + `editor/index.html` | Node + browser | `npm run editor`; local dev tool rooted at `process.cwd()` (path-guarded, no auth). Single-file vanilla JS + Tailwind CDN frontend.                                                      |
+| Entry              | File                                     | Runs on        | Role                                                                                                                                                                                                                                               |
+| ------------------ | ---------------------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pixelmap`         | `src/index.ts`                           | anywhere       | Pure core: types, validation (`pixelMapLayoutError`), geometry, `pixelMapCells`, frame index, UV math (`pixelMapCellUV`), animation clock (`pixelMapAnimationIndex`). Zero deps.                                                                   |
+| `pixelmap/engine`  | `src/engine.ts`                          | Node (sharp)   | Render sheets, structural ops (`applyOp`/`SheetOp`), `createLayout`, `pasteCellImage`, `pasteSheetImage`, `cropCellPng`. Throws `SheetError`.                                                                                                      |
+| `pixelmap/browser` | `src/browser.ts`                         | browser        | `loadPixelMapImage(baseUrl)`: fetches `<base>.cells.json` + `<base>.png`, chroma-keys magenta→alpha, returns RGBA + `frames` + `frameUV()` + `animation()` + `composeLayers()` (layered sprites with per-layer tint) + `release()`. Caches by URL. |
+| CLI                | `cli.ts`                                 | Node           | `npm run sheet -- <cmd>`; thin argv→`SheetOp` mapping. Run without args for usage.                                                                                                                                                                 |
+| Editor             | `editor/server.ts` + `editor/index.html` | Node + browser | `npm run editor`; local dev tool rooted at `process.cwd()` (path-guarded, no auth). Single-file vanilla JS + Tailwind CDN frontend.                                                                                                                |
 
 ## Core invariants (do not break)
 
@@ -37,7 +37,13 @@ restructure without losing paint. Ships as TS **source** (no build step):
   consumer repos (ignore them instead).
 - **Memory**: browser loads are cached per URL; `release()` frees the RGBA
   and evicts the cache entry (metadata stays usable). Adapters should call
-  it right after the GPU upload.
+  it right after the GPU upload — EXCEPT sheets used with `composeLayers`,
+  which needs the CPU pixels alive.
+- **Layer composition**: `composeLayers(ctx, layers, {x,y,scale})` stamps
+  cells in order; per-layer `tint` multiplies channels by `tint/base`
+  (neutral gray ramps painted around `base` reproduce shading factors
+  exactly; values above `base` overbrighten, clamped). Pure math lives in
+  `tintCellPixels` (node-testable).
 
 ## Dev commands
 
