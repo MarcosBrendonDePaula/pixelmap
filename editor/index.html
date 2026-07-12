@@ -50,6 +50,13 @@
           +
         </button>
       </div>
+      <button
+        id="btn-upload"
+        class="px-3 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-sm hidden"
+        title="substitui o PNG da folha atual (mesmas dimensões)"
+      >
+        Enviar PNG
+      </button>
       <a
         id="btn-download"
         class="px-3 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-sm hidden"
@@ -229,7 +236,7 @@
         const has = !!state && !!currentSheet;
         $('empty-hint').classList.toggle('hidden', !!state);
         $('stage-outer').classList.toggle('hidden', !has);
-        for (const id of ['btn-render', 'btn-title', 'btn-mode', 'btn-download'])
+        for (const id of ['btn-render', 'btn-title', 'btn-mode', 'btn-upload', 'btn-download'])
           $(id).classList.toggle('hidden', !state);
         if (state) $('btn-mode').textContent = isTable() ? '▦ Tipo: tabela' : '▤ Tipo: livre';
         $('zoom-box').classList.toggle('hidden', !has);
@@ -952,6 +959,29 @@
 
       // ------------------------------------------------------------- wire up
       $('btn-new').addEventListener('click', newLayoutModal);
+      $('btn-upload').addEventListener('click', () => {
+        const input = $('file-input');
+        input.onchange = async () => {
+          const file = input.files?.[0];
+          input.value = '';
+          if (!file) return;
+          try {
+            const dataUrl = await new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result);
+              reader.onerror = () => reject(new Error('falha lendo o arquivo'));
+              reader.readAsDataURL(file);
+            });
+            setState(
+              await post('/api/sheet/image', { path: state.path, sheet: currentSheet, dataUrl }),
+            );
+            toast(`folha ${currentSheet} importada`, 'ok');
+          } catch (error) {
+            toast(error.message, 'error');
+          }
+        };
+        input.click();
+      });
       $('btn-mode').addEventListener('click', modeModal);
       $('layout-select').addEventListener(
         'change',

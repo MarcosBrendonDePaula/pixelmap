@@ -519,3 +519,44 @@ export async function pasteCellImage(
     .toBuffer();
   writeFileSync(pngPath, composed);
 }
+
+/**
+ * Replace a whole sheet PNG with an edited/exported copy. Dimensions must
+ * match the sidecar exactly (the grid cannot be resized by hand); transparent
+ * pixels become magenta (= empty) so the sheet stays opaque per convention.
+ */
+export async function pasteSheetImage(
+  layoutPath: string,
+  sheet: string,
+  image: Buffer,
+): Promise<void> {
+  const pngPath = sheetPngPath(layoutPath, sheet);
+  const metaPath = sidecarPath(pngPath);
+  if (!existsSync(metaPath)) raise(`sheet not rendered: ${pngPath}`);
+  const sidecar = JSON.parse(readFileSync(metaPath, 'utf8')) as PixelMapCells;
+  const { data, info } = await sharp(image)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  if (info.width !== sidecar.width || info.height !== sidecar.height) {
+    raise(
+      `imported PNG is ${info.width}x${info.height} but the sheet is ` +
+        `${sidecar.width}x${sidecar.height} — export/import must keep the exact size`,
+    );
+  }
+  const pixels = new Uint8Array(data);
+  for (let i = 0; i < pixels.length; i += 4) {
+    if (pixels[i + 3] < 128) {
+      pixels[i] = PIXELMAP_EMPTY_COLOR[0];
+      pixels[i + 1] = PIXELMAP_EMPTY_COLOR[1];
+      pixels[i + 2] = PIXELMAP_EMPTY_COLOR[2];
+    }
+    pixels[i + 3] = 255;
+  }
+  const composed = await sharp(Buffer.from(pixels), {
+    raw: { width: info.width, height: info.height, channels: 4 },
+  })
+    .png({ compressionLevel: 9 })
+    .toBuffer();
+  writeFileSync(pngPath, composed);
+}

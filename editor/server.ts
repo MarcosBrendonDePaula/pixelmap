@@ -9,6 +9,7 @@ import {
   cropCellPng,
   loadLayout,
   pasteCellImage,
+  pasteSheetImage,
   renderAll,
   sheetPngPath,
   type SheetOp,
@@ -179,6 +180,17 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     const layout = loadLayout(layoutPath);
     await renderAll(layout, layoutPath);
     sendJson(res, 200, stateOf(layoutPath, layout));
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/sheet/image') {
+    const body = JSON.parse(await readBody(req)) as {
+      path: string;
+      sheet: string;
+      dataUrl: string;
+    };
+    const layoutPath = safePath(body.path, '.json');
+    await pasteSheetImage(layoutPath, body.sheet, dataUrlToBuffer(body.dataUrl));
+    sendJson(res, 200, stateOf(layoutPath, loadLayout(layoutPath)));
     return;
   }
   if (req.method === 'POST' && url.pathname === '/api/cell/image') {
